@@ -1,17 +1,30 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import CodeEditor from "@/components/CodeEditor";
 import OutputPanel from "@/components/OutputPanel";
+import { useRoomSync, type ConnectionStatus } from "@/hooks/useRoomSync";
 import { LANGUAGES, type LanguageId } from "@/lib/languages";
+
+// The editor only works in the browser, so never render it on the server
+const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
+  ssr: false,
+  loading: () => <p className="p-4 text-sm text-zinc-500">Loading editor…</p>,
+});
 
 type Theme = "vs-dark" | "light";
 
+const STATUS_STYLE: Record<ConnectionStatus, { dot: string; label: string }> = {
+  connecting: { dot: "bg-yellow-500", label: "Connecting…" },
+  connected: { dot: "bg-green-500", label: "Live" },
+  disconnected: { dot: "bg-red-500", label: "Offline" },
+};
+
 export default function RoomView({ roomId }: { roomId: string }) {
+  const { sync, status, synced } = useRoomSync(roomId);
   const [language, setLanguage] = useState<LanguageId>("python");
-  const [code, setCode] = useState<string>(LANGUAGES.python.starter);
   const [theme, setTheme] = useState<Theme>("vs-dark");
   const [copied, setCopied] = useState(false);
   const [stdin, setStdin] = useState("");
@@ -19,12 +32,42 @@ export default function RoomView({ roomId }: { roomId: string }) {
 
   const dark = theme === "vs-dark";
 
-  function changeLanguage(next: LanguageId) {
-    // Only swap in the starter code if the user hasn't written anything yet
-    if (code === LANGUAGES[language].starter) {
-      setCode(LANGUAGES[next].starter);
+  // Follow the shared language: when anyone changes it, everyone's dropdown updates
+  useEffect(() => {
+    if (!sync) return;
+    const { meta } = sync;
+    const update = () => {
+      const shared = meta.get("language");
+      if (shared && shared in LANGUAGES) setLanguage(shared as LanguageId);
+    };
+    update();
+    meta.observe(update);
+    return () => meta.unobserve(update);
+  }, [sync]);
+
+  // First person in an empty room: add the starter code
+  useEffect(() => {
+    if (!sync || !synced) return;
+    const { ydoc, ytext, meta } = sync;
+    if (ytext.length === 0 && !meta.get("language")) {
+      ydoc.transact(() => {
+        meta.set("language", "python");
+        ytext.insert(0, LANGUAGES.python.starter);
+      });
     }
-    setLanguage(next);
+  }, [sync, synced]);
+
+  function changeLanguage(next: LanguageId) {
+    if (!sync) return;
+    const { ydoc, ytext, meta } = sync;
+    ydoc.transact(() => {
+      // Only swap in the starter code if nobody has written anything yet
+      if (ytext.toString() === LANGUAGES[language].starter) {
+        ytext.delete(0, ytext.length);
+        ytext.insert(0, LANGUAGES[next].starter);
+      }
+      meta.set("language", next);
+    });
   }
 
   async function copyLink() {
@@ -35,6 +78,7 @@ export default function RoomView({ roomId }: { roomId: string }) {
 
   function runCode() {
     // Placeholder until Week 4, when this sends the code to the Judge0 sandbox
+    const code = sync?.ytext.toString() ?? "";
     const codeLines = code.split("\n").length;
     const inputInfo = stdin ? `, ${stdin.split("\n").length} line(s) of input` : "";
     setOutput(
@@ -62,6 +106,10 @@ export default function RoomView({ roomId }: { roomId: string }) {
         <button onClick={copyLink} className="text-sm text-blue-500 hover:underline">
           {copied ? "Link copied!" : "Copy link"}
         </button>
+        <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+          <span className={`h-2 w-2 rounded-full ${STATUS_STYLE[status].dot}`} />
+          {STATUS_STYLE[status].label}
+        </span>
 
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -74,6 +122,7 @@ export default function RoomView({ roomId }: { roomId: string }) {
           <select
             value={language}
             onChange={(e) => changeLanguage(e.target.value as LanguageId)}
+            disabled={!sync}
             className={`rounded border px-2 py-1 text-sm ${
               dark ? "border-zinc-700 bg-zinc-900" : "border-zinc-300 bg-white"
             }`}
@@ -100,12 +149,17 @@ export default function RoomView({ roomId }: { roomId: string }) {
       <main className="min-h-0 flex-1">
         <Group orientation="horizontal" className="h-full">
           <Panel defaultSize="70%" minSize="30%">
-            <CodeEditor
-              language={LANGUAGES[language].monaco}
-              value={code}
-              onChange={setCode}
-              theme={theme}
-            />
+            {sync ? (
+              <CodeEditor
+                key={sync.ydoc.guid}
+                language={LANGUAGES[language].monaco}
+                theme={theme}
+                ytext={sync.ytext}
+                awareness={sync.provider.awareness}
+              />
+            ) : (
+              <p className="p-4 text-sm text-zinc-500">Connecting to room…</p>
+            )}
           </Panel>
 
           <Separator

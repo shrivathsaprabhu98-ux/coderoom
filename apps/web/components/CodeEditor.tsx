@@ -1,22 +1,46 @@
 "use client";
 
-import Editor from "@monaco-editor/react";
+import type { HocuspocusProvider } from "@hocuspocus/provider";
+import Editor, { loader, type OnMount } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
+import { useEffect, useRef } from "react";
+import { MonacoBinding } from "y-monaco";
+import type * as Y from "yjs";
+
+// Use the locally installed Monaco (the same copy y-monaco uses)
+loader.config({ monaco });
 
 type Props = {
   language: string;
-  value: string;
-  onChange: (value: string) => void;
   theme: "vs-dark" | "light";
+  ytext: Y.Text;
+  awareness: HocuspocusProvider["awareness"];
 };
 
-export default function CodeEditor({ language, value, onChange, theme }: Props) {
+export default function CodeEditor({ language, theme, ytext, awareness }: Props) {
+  const bindingRef = useRef<MonacoBinding | null>(null);
+
+  const handleMount: OnMount = (editor) => {
+    const model = editor.getModel();
+    if (!model) return;
+    // Connect the editor to the shared code
+    bindingRef.current = new MonacoBinding(ytext, model, new Set([editor]), awareness ?? undefined);
+  };
+
+  // Disconnect when the editor is removed from the page
+  useEffect(() => {
+    return () => {
+      bindingRef.current?.destroy();
+      bindingRef.current = null;
+    };
+  }, []);
+
   return (
     <Editor
       height="100%"
       language={language}
-      value={value}
       theme={theme}
-      onChange={(v) => onChange(v ?? "")}
+      onMount={handleMount}
       loading={<div className="p-4 text-sm text-zinc-400">Loading editor…</div>}
       options={{
         fontSize: 15,
