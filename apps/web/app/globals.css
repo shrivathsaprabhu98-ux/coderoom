@@ -26,7 +26,7 @@ body {
 }
 /* Other people's cursors and selections (y-monaco) */
 .yRemoteSelection {
-  background-color: rgba(250, 129, 0, 0.35);
+  background-color: rgba(250, 129, 0, 0.25);
 }
 
 .yRemoteSelectionHead {
@@ -34,4 +34,19 @@ body {
   height: 100%;
   box-sizing: border-box;
   border-left: 2px solid orange;
+}
+
+/* The little name tag above each cursor */
+.yRemoteSelectionHead::after {
+  position: absolute;
+  top: -1.4em;
+  left: -2px;
+  padding: 0 4px;
+  border-radius: 3px 3px 3px 0;
+  font-size: 11px;
+  line-height: 1.4em;
+  color: white;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
 }

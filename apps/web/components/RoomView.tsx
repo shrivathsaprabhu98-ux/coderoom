@@ -4,7 +4,12 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import NameDialog from "@/components/NameDialog";
 import OutputPanel from "@/components/OutputPanel";
+import PresenceBar from "@/components/PresenceBar";
+import RemoteCursorStyles from "@/components/RemoteCursorStyles";
+import { useIdentity } from "@/hooks/useIdentity";
+import { usePresence } from "@/hooks/usePresence";
 import { useRoomSync, type ConnectionStatus } from "@/hooks/useRoomSync";
 import { LANGUAGES, type LanguageId } from "@/lib/languages";
 
@@ -24,6 +29,10 @@ const STATUS_STYLE: Record<ConnectionStatus, { dot: string; label: string }> = {
 
 export default function RoomView({ roomId }: { roomId: string }) {
   const { sync, status, synced } = useRoomSync(roomId);
+  const { name, color } = useIdentity();
+  const users = usePresence(sync?.provider.awareness ?? null);
+
+  const [editingName, setEditingName] = useState(false);
   const [language, setLanguage] = useState<LanguageId>("python");
   const [theme, setTheme] = useState<Theme>("vs-dark");
   const [copied, setCopied] = useState(false);
@@ -31,6 +40,12 @@ export default function RoomView({ roomId }: { roomId: string }) {
   const [output, setOutput] = useState("");
 
   const dark = theme === "vs-dark";
+
+  // Tell everyone in the room who we are (name + colour)
+  useEffect(() => {
+    if (!sync || !name || !color) return;
+    sync.provider.awareness?.setLocalStateField("user", { name, color });
+  }, [sync, name, color]);
 
   // Follow the shared language: when anyone changes it, everyone's dropdown updates
   useEffect(() => {
@@ -93,6 +108,12 @@ export default function RoomView({ roomId }: { roomId: string }) {
         dark ? "bg-zinc-950 text-zinc-100" : "bg-white text-zinc-900"
       }`}
     >
+      <RemoteCursorStyles users={users} />
+
+      {(!name || editingName) && (
+        <NameDialog initialName={name ?? ""} onDone={() => setEditingName(false)} />
+      )}
+
       {/* Top bar */}
       <header
         className={`flex items-center gap-3 border-b px-4 py-2 ${
@@ -111,7 +132,9 @@ export default function RoomView({ roomId }: { roomId: string }) {
           {STATUS_STYLE[status].label}
         </span>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
+          <PresenceBar users={users} onEditMe={() => setEditingName(true)} />
+
           <button
             onClick={runCode}
             className="rounded bg-green-600 px-3 py-1 text-sm font-semibold text-white hover:bg-green-500"
