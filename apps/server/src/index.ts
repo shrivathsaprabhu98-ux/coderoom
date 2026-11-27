@@ -1,10 +1,17 @@
+import "./env.js";
 import cors from "cors";
 import express from "express";
 import { Server } from "@hocuspocus/server";
+import { Database } from "@hocuspocus/extension-database";
+import { loadRoom, saveRoom, setupDatabase } from "./db.js";
 
 const API_PORT = Number(process.env.API_PORT ?? 4000);
 const SYNC_PORT = Number(process.env.SYNC_PORT ?? 1234);
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:3000";
+
+// ---------- Database ----------
+await setupDatabase();
+console.log("Database ready");
 
 // ---------- Door 1: API server (normal requests) ----------
 const app = express();
@@ -24,6 +31,19 @@ const syncServer = new Server({
   name: "coderoom-sync",
   port: SYNC_PORT,
   quiet: true,
+
+  extensions: [
+    new Database({
+      // First person opens a room: load its saved code
+      fetch: async ({ documentName }) => loadRoom(documentName),
+
+      // After changes (with a short pause): save the latest code
+      store: async ({ documentName, state }) => {
+        await saveRoom(documentName, state);
+        console.log(`Saved room: ${documentName}`);
+      },
+    }),
+  ],
 
   async onConnect({ documentName }) {
     console.log(`Someone joined room: ${documentName}`);
