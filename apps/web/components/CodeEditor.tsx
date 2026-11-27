@@ -21,10 +21,18 @@ export default function CodeEditor({ language, theme, ytext, awareness }: Props)
   const bindingRef = useRef<MonacoBinding | null>(null);
 
   const handleMount: OnMount = (editor) => {
-    const model = editor.getModel();
+    // @monaco-editor/react and y-monaco use different copies of Monaco's *types*,
+    // but at runtime it is the same editor, so we tell TypeScript to treat it as one type.
+    const monacoEditor = editor as unknown as monaco.editor.IStandaloneCodeEditor;
+    const model = monacoEditor.getModel();
     if (!model) return;
     // Connect the editor to the shared code
-    bindingRef.current = new MonacoBinding(ytext, model, new Set([editor]), awareness ?? undefined);
+    bindingRef.current = new MonacoBinding(
+      ytext,
+      model,
+      new Set([monacoEditor]),
+      awareness ?? undefined
+    );
   };
 
   // Disconnect when the editor is removed from the page
