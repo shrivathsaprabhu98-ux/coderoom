@@ -13,8 +13,10 @@ import RemoteCursorStyles from "@/components/RemoteCursorStyles";
 import { useIdentity } from "@/hooks/useIdentity";
 import { usePresence } from "@/hooks/usePresence";
 import { useRoomSync, type ConnectionStatus } from "@/hooks/useRoomSync";
+import { useRunState } from "@/hooks/useRunState";
 import type { ChatMessage } from "@/lib/chat";
 import { LANGUAGES, type LanguageId } from "@/lib/languages";
+import { executeCode } from "@/lib/run";
 
 // The editor only works in the browser, so never render it on the server
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
@@ -24,6 +26,8 @@ const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
 
 type Theme = "vs-dark" | "light";
 type RightTab = "output" | "chat";
+
+const MAX_STDIN = 10_000;
 
 const STATUS_STYLE: Record<ConnectionStatus, { dot: string; label: string }> = {
   connecting: { dot: "bg-yellow-500", label: "Connecting…" },
@@ -36,13 +40,14 @@ export default function RoomView({ roomId }: { roomId: string }) {
   const { name, color } = useIdentity();
   const users = usePresence(sync?.provider.awareness ?? null);
   const me = users.find((user) => user.isMe) ?? null;
+  const runState = useRunState(sync?.run ?? null);
 
   const [editingName, setEditingName] = useState(false);
   const [language, setLanguage] = useState<LanguageId>("python");
   const [theme, setTheme] = useState<Theme>("vs-dark");
   const [copied, setCopied] = useState(false);
   const [stdin, setStdin] = useState("");
-  const [output, setOutput] = useState("");
+  const [runInFlight, setRunInFlight] = useState(false);
   const [rightTab, setRightTab] = useState<RightTab>("output");
   const [chatUnread, setChatUnread] = useState(false);
 
@@ -57,13 +62,14 @@ export default function RoomView({ roomId }: { roomId: string }) {
     sync.provider.awareness?.setLocalStateField("user", { name, color });
   }, [sync, name, color]);
 
-  // Follow the shared language: when anyone changes it, everyone's dropdown updates
+  // Follow the shared language and input: when anyone changes them, everyone updates
   useEffect(() => {
     if (!sync) return;
     const { meta } = sync;
     const update = () => {
       const shared = meta.get("language");
       if (shared && shared in LANGUAGES) setLanguage(shared as LanguageId);
+      setStdin(meta.get("stdin") ?? "");
     };
     update();
     meta.observe(update);
@@ -111,22 +117,52 @@ export default function RoomView({ roomId }: { roomId: string }) {
     });
   }
 
+  function changeStdin(value: string) {
+    const limited = value.slice(0, MAX_STDIN);
+    setStdin(limited);
+    sync?.meta.set("stdin", limited);
+  }
+
   async function copyLink() {
     await navigator.clipboard.writeText(window.location.href);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
-  function runCode() {
-    // Placeholder until Week 4, when this sends the code to the Judge0 sandbox
-    const code = sync?.ytext.toString() ?? "";
-    const codeLines = code.split("\n").length;
-    const inputInfo = stdin ? `, ${stdin.split("\n").length} line(s) of input` : "";
-    setOutput(
-      `▶ Run pressed: ${LANGUAGES[language].label}, ${codeLines} lines of code${inputInfo}\n\n` +
-        "Running code arrives in Week 4, when we connect the Judge0 sandbox."
-    );
+  async function runCode() {
+    if (!sync || runInFlight) return;
+    const runMap = sync.run;
+    const by = me?.name ?? "Someone";
+    const runLanguage = language;
+
+    setRunInFlight(true);
     openTab("output");
+    runMap.set("last", { status: "running", by, language: runLanguage, startedAt: Date.now() });
+
+    try {
+      const result = await executeCode({
+        language: runLanguage,
+        code: sync.ytext.toString(),
+        stdin,
+      });
+      runMap.set("last", {
+        status: "done",
+        by,
+        language: runLanguage,
+        finishedAt: Date.now(),
+        ...result,
+      });
+    } catch (error) {
+      runMap.set("last", {
+        status: "error",
+        by,
+        language: runLanguage,
+        finishedAt: Date.now(),
+        error: error instanceof Error ? error.message : "Something went wrong.",
+      });
+    } finally {
+      setRunInFlight(false);
+    }
   }
 
   const tabClass = (active: boolean) =>
@@ -165,9 +201,10 @@ export default function RoomView({ roomId }: { roomId: string }) {
 
           <button
             onClick={runCode}
-            className="rounded bg-green-600 px-3 py-1 text-sm font-semibold text-white hover:bg-green-500"
+            disabled={!sync || runInFlight}
+            className="rounded bg-green-600 px-3 py-1 text-sm font-semibold text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            ▶ Run
+            {runInFlight ? "Running…" : "▶ Run"}
           </button>
 
           <select
@@ -245,9 +282,9 @@ export default function RoomView({ roomId }: { roomId: string }) {
                   <OutputPanel
                     dark={dark}
                     stdin={stdin}
-                    onStdinChange={setStdin}
-                    output={output}
-                    onClear={() => setOutput("")}
+                    onStdinChange={changeStdin}
+                    run={runState}
+                    onClear={() => sync?.run.delete("last")}
                   />
                 ) : sync && synced ? (
                   <ChatPanel ydoc={sync.ydoc} chat={sync.chat} me={me} dark={dark} />

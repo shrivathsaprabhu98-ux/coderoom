@@ -4,6 +4,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
 import type { ChatMessage } from "@/lib/chat";
+import type { RunState } from "@/lib/run";
 
 const SYNC_URL = process.env.NEXT_PUBLIC_SYNC_URL ?? "ws://localhost:1234";
 
@@ -15,6 +16,7 @@ export type RoomSync = {
   ytext: Y.Text;
   meta: Y.Map<string>;
   chat: Y.Array<ChatMessage>;
+  run: Y.Map<RunState>;
 };
 
 export function useRoomSync(roomId: string) {
@@ -40,6 +42,7 @@ export function useRoomSync(roomId: string) {
       ytext: ydoc.getText("code"),
       meta: ydoc.getMap<string>("meta"),
       chat: ydoc.getArray<ChatMessage>("chat"),
+      run: ydoc.getMap<RunState>("run"),
     });
 
     return () => {
