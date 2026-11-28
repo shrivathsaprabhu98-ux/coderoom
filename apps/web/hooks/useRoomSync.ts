@@ -3,6 +3,7 @@
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
+import type { ChatMessage } from "@/lib/chat";
 
 const SYNC_URL = process.env.NEXT_PUBLIC_SYNC_URL ?? "ws://localhost:1234";
 
@@ -13,6 +14,7 @@ export type RoomSync = {
   provider: HocuspocusProvider;
   ytext: Y.Text;
   meta: Y.Map<string>;
+  chat: Y.Array<ChatMessage>;
 };
 
 export function useRoomSync(roomId: string) {
@@ -29,6 +31,7 @@ export function useRoomSync(roomId: string) {
       onStatus: ({ status }) => setStatus(status as ConnectionStatus),
       onSynced: () => setSynced(true),
     });
+
     // Store the new connection so the page can use it (intentional: syncing with an external system)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSync({
@@ -36,6 +39,7 @@ export function useRoomSync(roomId: string) {
       provider,
       ytext: ydoc.getText("code"),
       meta: ydoc.getMap<string>("meta"),
+      chat: ydoc.getArray<ChatMessage>("chat"),
     });
 
     return () => {
