@@ -31,6 +31,24 @@ services:
       timeout: 5s
       retries: 10
 
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: coderoom-piston
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "2000:2000"
+    volumes:
+      - piston_packages:/piston/packages
+    tmpfs:
+      - /tmp:exec
+    # Workaround: one GitHub download server is unreachable on this network,
+    # so point GitHub's download sites to a server that works.
+    extra_hosts:
+      - "release-assets.githubusercontent.com:185.199.108.133"
+      - "objects.githubusercontent.com:185.199.108.133"
+
 volumes:
   postgres_data:
   redis_data:
+  piston_packages:
